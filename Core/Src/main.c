@@ -1,0 +1,230 @@
+/* 头文件包含 */
+#include "main.h"
+
+/* 自定义任务函数声明 */
+/* 符合MISRA C Rule 8.4：函数声明可见性 */
+static void vBlinkTask(void *pvParameters);          /* LED闪烁任务函数 */
+static void vUartProcessTask(void *pvParameters);    /* 串口处理任务函数 */
+static void vSystemMonitorTask(void *pvParameters);  /* 系统监控任务函数 */
+static void vLVGLTask(void *pvParameters);           /* LVGL界面任务函数 */
+
+int main(void)
+{
+  /* 硬件初始化阶段 */
+  /* 符合MISRA C Rule 2.2：源代码唯一性 */
+  SystemClock_Config();      /* 系统时钟配置（HSI 16MHz） */
+  My_GPIO_Init();            /* GPIO初始化（LED:PC0, UART1:PA9/PA10） */
+  UART_Init();               /* 串口初始化（115200 8N1） */
+  configureTimerForRuntimeStats(); /* 配置TIM2用于运行时间统计 */
+
+  /* LVGL图形库初始化 */
+  lv_init();                 /* LVGL核心库初始化 */
+  lv_port_disp_init();       /* 显示驱动程序初始化 */
+	
+  /* 任务创建阶段 */
+  /* 符合MISRA C Rule 17.6：函数参数类型匹配检查 */
+  /* 参数顺序：任务函数, 任务名, 堆栈大小, 参数, 优先级, 任务句柄 */
+  xTaskCreate(vBlinkTask, "Blink", 64, NULL, 4, NULL);        /* LED闪烁任务 */
+  xTaskCreate(vUartProcessTask, "UartProc", 512, NULL, 2, NULL); /* 串口处理 */
+  xTaskCreate(vSystemMonitorTask, "Monitor", 512, NULL, 1, NULL);/* 系统监控 */
+  xTaskCreate(vLVGLTask, "LVGL", 1024, NULL, 3, NULL);        /* LVGL界面任务 */
+
+  vTaskStartScheduler();     /* 启动FreeRTOS调度器 */
+
+  /* 符合MISRA C Rule 15.3：main函数结束前应有无限循环 */
+  for(;;) {}                 /* 调度器启动后不应执行到此 */
+}
+
+/* LVGL任务函数 */
+static void vLVGLTask(void *pvParameters)
+{
+  (void)pvParameters;        /* 显式忽略未使用参数（MISRA Rule 2.7） */
+
+  Gui_Init();                /* 用户图形界面初始化 */
+  /* LVGL主循环 */
+  for(;;)
+    {
+      Gui_Change();            /* 更新GUI界面 */
+      lv_timer_handler();      /* 处理LVGL定时器（最小5ms间隔） */
+      vTaskDelay(5 / portTICK_PERIOD_MS); /* 20Hz刷新率（符合Rule 10.1：显式类型转换） */
+    }
+}
+
+
+/* LED闪烁任务 */
+static void vBlinkTask(void *pvParameters)
+{
+  (void)pvParameters;        /* 显式忽略未使用参数 */
+
+  for(;;)
+    {
+      LL_GPIO_TogglePin(GPIOC, LL_GPIO_PIN_0); /* 原子操作切换LED */
+      vTaskDelay(200 / portTICK_PERIOD_MS);     /* 200ms周期 */
+    }
+}
+
+
+uint32_t getRuntimeCounterValue(void)
+{
+  return LL_TIM_GetCounter(TIM2);
+}
+
+void configureTimerForRuntimeStats(void)
+{
+  // 启用TIM2时钟（L4系列时钟树不同）
+  LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_TIM2);
+
+  // 配置时基（L4系列MSI默认4MHz，需根据实际时钟调整）
+  LL_TIM_InitTypeDef TIM_InitStruct = {0};
+  TIM_InitStruct.Prescaler = 3999;
+  TIM_InitStruct.CounterMode = LL_TIM_COUNTERMODE_UP;
+  TIM_InitStruct.Autoreload = 0xFFFFFFFF;
+  TIM_InitStruct.ClockDivision = LL_TIM_CLOCKDIVISION_DIV1;
+  TIM_InitStruct.RepetitionCounter = 0;   // L4特有参数
+
+  LL_TIM_Init(TIM2, &TIM_InitStruct);
+  LL_TIM_EnableARRPreload(TIM2);          // L4需要使能预装载
+  LL_TIM_EnableCounter(TIM2);
+}
+
+/* 串口命令处理任务 */
+static void vUartProcessTask(void *pvParameters)
+{
+  /* 符合MISRA C Rule 5.9：标识符长度不超过31字符 */
+  static uint8_t cmdIndex = 0;              /* 命令缓冲区索引 */
+  static char cmdBuffer[64] = {0};          /* 命令缓冲区（Rule 8.12：静态存储期） */
+
+  (void)pvParameters;
+
+  for(;;)
+    {
+      if (uart1_dev.rx_buf.head != uart1_dev.rx_buf.tail) /* 检测接收缓冲数据 */
+        {
+          uint8_t data;
+          taskENTER_CRITICAL();                 /* 进入临界区（Rule 20.7：保护共享资源） */
+          data = uart1_dev.rx_buf.buffer[uart1_dev.rx_buf.tail];
+          uart1_dev.rx_buf.tail = (uart1_dev.rx_buf.tail + 1) % UART1_RX_BUF_SIZE;
+          taskEXIT_CRITICAL();
+
+          UART_Send_IT(USART1, &data, 1);       /* 回显接收数据 */
+
+          /* 命令解析逻辑 */
+          if ((data == '\r') || (data == '\n'))  /* 检测行结束符 */
+            {
+              cmdBuffer[cmdIndex] = '\0';
+              if (strcmp(cmdBuffer, "status") == 0)
+                {
+                  vSystemMonitorTask(NULL);         /* 触发系统状态查询 */
+                }
+              cmdIndex = 0;                       /* 重置缓冲区索引 */
+            }
+          else if (cmdIndex < (sizeof(cmdBuffer)-1U)) /* 防止缓冲区溢出（Rule 18.1） */
+            {
+              cmdBuffer[cmdIndex++] = data;       /* 存储有效字符 */
+            }
+        }
+      vTaskDelay(20 / portTICK_PERIOD_MS);    /* 50Hz检测频率 */
+    }
+}
+
+#if 1
+/* 系统监控任务 */
+void vSystemMonitorTask(void *pvParameters)
+{
+  const UBaseType_t maxTasks = 10;
+  TaskStatus_t *taskStatusArray = pvPortMalloc(maxTasks * sizeof(TaskStatus_t));
+  static TaskStatus_t prevTaskStatusArray[10] = {0};
+  static uint32_t prevTotalRuntime = 0;
+  static UBaseType_t prevNumTasks = 0;
+
+  if (!taskStatusArray)
+    {
+      vTaskDelete(NULL);
+      return;
+    }
+
+  while (1)
+    {
+      UBaseType_t numTasks = uxTaskGetSystemState(taskStatusArray, maxTasks, NULL);
+      if (numTasks > maxTasks) numTasks = maxTasks;
+
+      // 计算总运行时间
+      uint32_t currentTotalRuntime = 0;
+      for (UBaseType_t i = 0; i < numTasks; i++)
+        {
+          currentTotalRuntime += taskStatusArray[i].ulRunTimeCounter;
+        }
+
+      /* 状态变化检测 */
+      if (prevNumTasks != 0)
+        {
+          uint32_t deltaTotal = currentTotalRuntime - prevTotalRuntime;
+          if (deltaTotal > 0)
+            {
+              char buffer[128];
+              UART_Send_IT(USART1, (uint8_t*)"\r\n=== System Status ===\r\n", 23);
+              /* 遍历所有任务计算CPU占用率 */
+              for (UBaseType_t i = 0; i < numTasks; i++)
+                {
+                  for (UBaseType_t j = 0; j < prevNumTasks; j++)
+                    {
+                      if (taskStatusArray[i].xHandle == prevTaskStatusArray[j].xHandle)
+                        {
+                          uint32_t deltaTask = taskStatusArray[i].ulRunTimeCounter - prevTaskStatusArray[j].ulRunTimeCounter;
+                          float percent = (deltaTotal > 0) ? (100.0f * deltaTask / deltaTotal) : 0;
+                          snprintf(buffer, sizeof(buffer),
+                                   "%-12s CPU:%5.2f%% Stack:%5u\r\n",
+                                   taskStatusArray[i].pcTaskName,
+                                   percent,
+                                   taskStatusArray[i].usStackHighWaterMark);
+                          UART_Send_IT(USART1, (uint8_t*)buffer, strlen(buffer));
+                          break;
+                        }
+                    }
+                }
+            }
+        }
+
+      /* 保存当前状态 */
+      memcpy(prevTaskStatusArray, taskStatusArray,
+             numTasks * sizeof(TaskStatus_t));	/* Rule 17.6：参数类型匹配 */
+      prevTotalRuntime = currentTotalRuntime;
+      prevNumTasks = numTasks;
+
+      vTaskDelay(pdMS_TO_TICKS(2000)); /* 2秒更新周期 */
+    }
+}
+
+#endif
+
+/* FreeRTOS回调函数 */
+void vApplicationMallocFailedHook(void)
+{
+  /* 符合MISRA C Rule 20.9：错误处理 */
+  for(;;) { /* 内存分配失败时系统挂起 */ }
+}
+
+void vApplicationIdleHook(void)
+{
+  lv_tick_inc(portTICK_PERIOD_MS); /* LVGL心跳（Rule 2.2：单一职责） */
+}
+
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+  /* 堆栈溢出处理 */
+  (void)xTask;
+  (void)pcTaskName;
+  fr_printf("\r\n!!! Stack Overflow in %s !!!\r\n", pcTaskName);
+  while (1);
+}
+
+void vApplicationTickHook(void)
+{
+  /* 时钟节拍处理 */
+}
+
+void Error_Handler(void)
+{
+  /* 用户可以添加自己的错误处理代码 */
+  while(1);
+}

@@ -1,0 +1,13 @@
+documents\lv_tlsf.o: ..\lvgl\src\misc\lv_tlsf.c
+documents\lv_tlsf.o: ..\lvgl\src\misc\../lv_conf_internal.h
+documents\lv_tlsf.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stdint.h
+documents\lv_tlsf.o: ..\lvgl\src\misc\../lv_conf_kconfig.h
+documents\lv_tlsf.o: ..\lvgl\examples\porting\../../lv_conf.h
+documents\lv_tlsf.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\limits.h
+documents\lv_tlsf.o: ..\lvgl\src\misc\lv_tlsf.h
+documents\lv_tlsf.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stddef.h
+documents\lv_tlsf.o: ..\lvgl\src\misc\lv_mem.h
+documents\lv_tlsf.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\string.h
+documents\lv_tlsf.o: ..\lvgl\src\misc\lv_types.h
+documents\lv_tlsf.o: ..\lvgl\src\misc\lv_log.h
+documents\lv_tlsf.o: ..\lvgl\src\misc\lv_assert.h

@@ -1,0 +1,11 @@
+documents\stm32l4xx_ll_rcc.o: ../Drivers/STM32L4xx_HAL_Driver/Src/stm32l4xx_ll_rcc.c
+documents\stm32l4xx_ll_rcc.o: ../Drivers/STM32L4xx_HAL_Driver/Inc/stm32l4xx_ll_rcc.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Device/ST/STM32L4xx/Include/stm32l4xx.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Device/ST/STM32L4xx/Include/stm32l431xx.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Include/core_cm4.h
+documents\stm32l4xx_ll_rcc.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stdint.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Include/cmsis_version.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Include/cmsis_compiler.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Include/cmsis_armcc.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Include/mpu_armv7.h
+documents\stm32l4xx_ll_rcc.o: ../Drivers/CMSIS/Device/ST/STM32L4xx/Include/system_stm32l4xx.h

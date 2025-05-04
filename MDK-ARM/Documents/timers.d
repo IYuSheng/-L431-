@@ -1,0 +1,15 @@
+documents\timers.o: ..\FreeRTOS\src\timers.c
+documents\timers.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stdlib.h
+documents\timers.o: ../FreeRTOS/inc/FreeRTOS.h
+documents\timers.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stddef.h
+documents\timers.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stdint.h
+documents\timers.o: ../FreeRTOS/FreeRTOSConfig.h
+documents\timers.o: ../FreeRTOS/inc/projdefs.h
+documents\timers.o: ../FreeRTOS/inc/portable.h
+documents\timers.o: ../FreeRTOS/inc/deprecated_definitions.h
+documents\timers.o: ../FreeRTOS/port/portmacro.h
+documents\timers.o: ../FreeRTOS/inc/mpu_wrappers.h
+documents\timers.o: ../FreeRTOS/inc/task.h
+documents\timers.o: ../FreeRTOS/inc/list.h
+documents\timers.o: ../FreeRTOS/inc/queue.h
+documents\timers.o: ../FreeRTOS/inc/timers.h

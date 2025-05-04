@@ -1,0 +1,13 @@
+documents\lv_color.o: ..\lvgl\src\misc\lv_color.c
+documents\lv_color.o: ..\lvgl\src\misc\lv_color.h
+documents\lv_color.o: ..\lvgl\src\misc\../lv_conf_internal.h
+documents\lv_color.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stdint.h
+documents\lv_color.o: ..\lvgl\src\misc\../lv_conf_kconfig.h
+documents\lv_color.o: ..\lvgl\examples\porting\../../lv_conf.h
+documents\lv_color.o: ..\lvgl\src\misc\lv_assert.h
+documents\lv_color.o: ..\lvgl\src\misc\lv_log.h
+documents\lv_color.o: ..\lvgl\src\misc\lv_types.h
+documents\lv_color.o: ..\lvgl\src\misc\lv_mem.h
+documents\lv_color.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\stddef.h
+documents\lv_color.o: D:\Keilv5\ARM\ARMCC\Bin\..\include\string.h
+documents\lv_color.o: ..\lvgl\src\misc\lv_math.h

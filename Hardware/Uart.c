@@ -1,0 +1,120 @@
+#include "uart.h"
+
+UART_DEV uart1_dev = {0};
+
+static void InitHardUart(void)
+{
+  // 启用接收中断
+  LL_USART_EnableIT_RXNE(USART1);
+  NVIC_SetPriority(USART1_IRQn, 5); // 设置中断优先级
+  NVIC_EnableIRQ(USART1_IRQn);
+}
+
+static void UartVarInit(void)
+{
+  memset(&uart1_dev, 0, sizeof(UART_DEV));
+}
+
+void UART_Send_IT(USART_TypeDef *USARTx, uint8_t *pData, uint16_t Size)
+{
+  // 等待上次发送完成
+  while(uart1_dev.tx_busy);
+
+  // 复制数据到发送缓冲区
+  uint16_t copy_size = Size > UART1_TX_BUF_SIZE ? UART1_TX_BUF_SIZE : Size;
+  memcpy(uart1_dev.tx_buf, pData, copy_size);
+
+  // 启用发送中断
+  uart1_dev.tx_index = 0;
+  uart1_dev.tx_size = copy_size;
+  uart1_dev.tx_busy = 1;
+
+  LL_USART_TransmitData8(USART1, uart1_dev.tx_buf[uart1_dev.tx_index++]);
+  LL_USART_EnableIT_TC(USART1);
+}
+
+void fr_printf(const char *format, ...)
+{
+  char buffer[UART1_TX_BUF_SIZE];
+  va_list args;
+  va_start(args, format);
+  vsnprintf(buffer, sizeof(buffer), format, args);
+  va_end(args);
+  UART_Send_IT(USART1, (uint8_t *)buffer, strlen(buffer));
+}
+
+/**
+  * @brief USART1初始化函数
+  */
+static void MX_USART1_UART_Init(void)
+{
+  LL_USART_InitTypeDef USART_InitStruct = {0}; // USART配置结构体
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0}; // GPIO配置结构体
+
+  LL_RCC_SetUSARTClockSource(LL_RCC_USART1_CLKSOURCE_PCLK2); // 设置USART1时钟源
+
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_USART1); // 启用USART1时钟
+  LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOA); // 启用GPIOA时钟
+
+  /* 配置USART1的TX和RX引脚 */
+  GPIO_InitStruct.Pin = LL_GPIO_PIN_9 | LL_GPIO_PIN_10; // 选择PA9和PA10引脚
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_ALTERNATE; // 设置为复用模式
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH; // 设置引脚速度
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL; // 设置输出类型为推挽
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO; // 设置无上下拉
+  GPIO_InitStruct.Alternate = LL_GPIO_AF_7; // 设置复用功能为USART1
+  LL_GPIO_Init(GPIOA, &GPIO_InitStruct); // 初始化GPIOA的PA9和PA10引脚
+
+  /* 配置USART1参数 */
+  USART_InitStruct.BaudRate = 115200; // 波特率
+  USART_InitStruct.DataWidth = LL_USART_DATAWIDTH_8B; // 数据宽度
+  USART_InitStruct.StopBits = LL_USART_STOPBITS_1; // 停止位
+  USART_InitStruct.Parity = LL_USART_PARITY_NONE; // 无奇偶校验
+  USART_InitStruct.TransferDirection = LL_USART_DIRECTION_TX_RX; // 收发方向
+  USART_InitStruct.HardwareFlowControl = LL_USART_HWCONTROL_NONE; // 无硬件流控制
+  USART_InitStruct.OverSampling = LL_USART_OVERSAMPLING_16; // 超采样设置
+  LL_USART_Init(USART1, &USART_InitStruct); // 初始化USART1
+  LL_USART_ConfigAsyncMode(USART1); // 配置为异步模式
+  LL_USART_Enable(USART1); // 启用USART1
+}
+
+void UART_Init(void)
+{
+  MX_USART1_UART_Init();
+  InitHardUart();
+  UartVarInit();
+}
+//串口中断处理函数
+void USART1_IRQHandler(void)
+{
+  if(LL_USART_IsActiveFlag_RXNE(USART1))
+    {
+      uint8_t data = LL_USART_ReceiveData8(USART1);
+      uint16_t next_head = (uart1_dev.rx_buf.head + 1) % UART1_RX_BUF_SIZE;
+
+      if(next_head != uart1_dev.rx_buf.tail)
+        {
+          uart1_dev.rx_buf.buffer[uart1_dev.rx_buf.head] = data;
+          uart1_dev.rx_buf.head = next_head;
+        }
+      // 重新启用接收中断
+      LL_USART_EnableIT_RXNE(USART1);
+    }
+
+  //发送中断处理
+  if(LL_USART_IsActiveFlag_TC(USART1) && LL_USART_IsEnabledIT_TC(USART1))
+    {
+      LL_USART_ClearFlag_TC(USART1);
+      if (uart1_dev.tx_index < uart1_dev.tx_size)
+        {
+          // 发送下一个字节
+          LL_USART_TransmitData8(USART1, uart1_dev.tx_buf[uart1_dev.tx_index++]);
+        }
+      else
+        {
+          // 所有数据发送完成
+          LL_USART_DisableIT_TC(USART1); // 关闭TC中断
+          uart1_dev.tx_busy = 0;        // 标记发送完成
+        }
+    }
+}

@@ -1,0 +1,140 @@
+#include "LCD.h"
+
+#define ILI9341_Delay(ms)  DWT_Delay(ms)
+
+// 私有函数声明
+static void SPI_Transmit_DMA(uint8_t *data, uint32_t length, uint8_t is_data);
+static void HardwareReset(void);
+
+void ILI9341_Init(void)
+{
+  // 初始化GPIO
+  LL_GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  // 使能SPI1和GPIOA时钟
+  LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_SPI1);
+  LL_AHB2_GRP1_EnableClock(LL_AHB2_GRP1_PERIPH_GPIOA);
+
+  // 配置控制引脚（CS, DC, RESET）
+  GPIO_InitStruct.Pin = LCD_CS_PIN | LCD_DC_PIN | LCD_RESET_PIN;
+  GPIO_InitStruct.Mode = LL_GPIO_MODE_OUTPUT;
+  GPIO_InitStruct.Speed = LL_GPIO_SPEED_FREQ_VERY_HIGH;
+  GPIO_InitStruct.OutputType = LL_GPIO_OUTPUT_PUSHPULL;
+  GPIO_InitStruct.Pull = LL_GPIO_PULL_NO;
+  LL_GPIO_Init(LCD_CS_PORT, &GPIO_InitStruct);
+
+  // 配置SPI引脚复用功能（SCK和MOSI）
+  LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_5, LL_GPIO_MODE_ALTERNATE); // SCK
+  LL_GPIO_SetAFPin_0_7(GPIOA, LL_GPIO_PIN_5, LL_GPIO_AF_5);
+  LL_GPIO_SetPinMode(GPIOA, LL_GPIO_PIN_7, LL_GPIO_MODE_ALTERNATE); // MOSI
+  LL_GPIO_SetAFPin_0_7(GPIOA, LL_GPIO_PIN_7, LL_GPIO_AF_5);
+
+  // 配置DMA
+  LL_DMA_InitTypeDef DMA_InitStruct = {0};
+  DMA_InitStruct.PeriphOrM2MSrcAddress = (uint32_t)&LCD_SPI->DR;
+  DMA_InitStruct.MemoryOrM2MDstAddress = 0;
+  DMA_InitStruct.Direction = LL_DMA_DIRECTION_MEMORY_TO_PERIPH;
+  DMA_InitStruct.Mode = LL_DMA_MODE_NORMAL;
+  DMA_InitStruct.PeriphOrM2MSrcIncMode = LL_DMA_PERIPH_NOINCREMENT;
+  DMA_InitStruct.MemoryOrM2MDstIncMode = LL_DMA_MEMORY_INCREMENT;
+  DMA_InitStruct.PeriphOrM2MSrcDataSize = LL_DMA_PDATAALIGN_BYTE;
+  DMA_InitStruct.MemoryOrM2MDstDataSize = LL_DMA_MDATAALIGN_BYTE;
+  DMA_InitStruct.NbData = 0;
+  DMA_InitStruct.PeriphRequest = LL_DMA_REQUEST_0; // SPI1_TX请求
+  DMA_InitStruct.Priority = LL_DMA_PRIORITY_HIGH;
+  LL_DMA_Init(DMA1, LL_DMA_CHANNEL_3, &DMA_InitStruct); // 配置DMA1_Channel3
+
+  // 直接配置SPI寄存器
+  LCD_SPI->CR1 = 0;  // 复位CR1
+  LCD_SPI->CR1 |= SPI_CR1_MSTR;               // 主模式
+  LCD_SPI->CR1 |= SPI_CR1_BR_0;
+  LCD_SPI->CR1 |= SPI_CR1_SSM | SPI_CR1_SSI;  // 软件NSS
+  LCD_SPI->CR1 &= ~SPI_CR1_CPOL;              // CPOL=0
+  LCD_SPI->CR1 &= ~SPI_CR1_CPHA;              // CPHA=0 (Mode 0)
+
+  LCD_SPI->CR2 = 0;
+  LCD_SPI->CR2 |= (0x7 << SPI_CR2_DS_Pos);    // 8-bit数据
+  LCD_SPI->CR1 |= SPI_CR1_SPE;                // 使能SPI
+	
+	    // 启用SPI的DMA发送请求
+    LL_SPI_EnableDMAReq_TX(LCD_SPI);
+	
+	  // 硬件复位
+  HardwareReset();
+
+
+uint8_t init_sequence[] = {
+    // 格式：命令, 数据长度, 数据...
+    0xCF, 3, 0x00, 0xC1, 0x30,
+    0xED, 4, 0x64, 0x03, 0x12, 0x81,
+    0xE8, 3, 0x85, 0x10, 0x7A,
+    0x36, 1, 0x48,
+    0x3A, 1, 0x55,
+    0x11, 0 // 退出睡眠，无数据
+};
+
+uint8_t *ptr = init_sequence;
+while(ptr < init_sequence + sizeof(init_sequence)) {
+    uint8_t cmd = *ptr++;
+    uint8_t args = *ptr++;
+    
+    // 发送命令
+    SPI_Transmit_DMA(&cmd, 1, 0);
+    
+    // 发送数据
+    if(args > 0) {
+        SPI_Transmit_DMA(ptr, args, 1);
+        ptr += args;
+    }
+    
+    // 特殊命令延时
+    if(cmd == 0x11) ILI9341_Delay(120);
+}
+}
+
+void ILI9341_FillScreen(uint16_t color)
+{
+    static uint16_t buffer[320]; // 静态缓冲区避免栈溢出
+    
+    // 预填充缓冲区
+    for(int i=0; i<320; i++) buffer[i] = color;
+    
+    ILI9341_SetWindow(0, 0, ILI9341_WIDTH-1, ILI9341_HEIGHT-1);
+    
+    // 逐行发送数据
+    for(int y=0; y<240; y++) {
+        SPI_Transmit_DMA((uint8_t*)buffer, 320*2, 1);
+    }
+}
+
+static void SPI_Transmit_DMA(uint8_t *data, uint32_t length, uint8_t is_data)
+{
+    LL_GPIO_ResetOutputPin(LCD_CS_PORT, LCD_CS_PIN);
+    LL_GPIO_WriteOutputPort(LCD_DC_PORT, is_data ? LCD_DC_PIN : 0);
+    
+    LL_DMA_DisableChannel(DMA1, LL_DMA_CHANNEL_3);
+    LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_3, length);
+    LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_3, (uint32_t)data);
+    LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_3);
+}
+
+void ILI9341_SetWindow(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1)
+{
+    uint8_t cmd;
+    uint8_t data[4];
+    
+    cmd = 0x2A;
+    data[0] = x0 >> 8; data[1] = x0;
+    data[2] = x1 >> 8; data[3] = x1;
+    SPI_Transmit_DMA(&cmd, 1, 0);
+    SPI_Transmit_DMA(data, 4, 1);
+    
+    cmd = 0x2B;
+    data[0] = y0 >> 8; data[1] = y0;
+    data[2] = y1 >> 8; data[3] = y1;
+    SPI_Transmit_DMA(&cmd, 1, 0);
+    SPI_Transmit_DMA(data, 4, 1);
+    
+    cmd = 0x2C;
+    SPI_Transmit_DMA(&cmd, 1, 0);
+}
